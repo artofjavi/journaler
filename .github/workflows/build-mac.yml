@@ -1,0 +1,38 @@
+name: Build macOS DMG
+
+on:
+  push:
+    tags:
+      - 'v*' # Automatically runs when you push a version tag (e.g., v1.0.0)
+  workflow_dispatch: # Adds a manual "Run workflow" button in the GitHub Actions tab
+
+jobs:
+  build-dmg:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Adjust if your project requires a different Node version
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and package macOS DMG
+        run: npm run dist:mac
+        env:
+          # Prevents electron-builder from failing if Apple Developer signing certs aren't set up yet
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload DMG Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macOS-Installer-DMG
+          path: |
+            dist/*.dmg
+            release/*.dmg
