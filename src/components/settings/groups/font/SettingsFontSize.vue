@@ -3,7 +3,7 @@
     <!-- Slider -->
     <Slider
       v-model="modelValue"
-      :min="4"
+      :min="10"
       :max="72"
       :step="1" />
 

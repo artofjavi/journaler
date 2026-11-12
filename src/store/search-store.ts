@@ -22,6 +22,12 @@ export const useSearchStore = defineStore("search", () => {
     isOpen.value = true;
   };
 
+  const openWithQuery = (initialQuery: string) => {
+    query.value = initialQuery;
+    selectedIndex.value = 0;
+    isOpen.value = true;
+  };
+
   const close = () => {
     isOpen.value = false;
   };
@@ -68,6 +74,7 @@ export const useSearchStore = defineStore("search", () => {
     selectedIndex,
     pendingReveal,
     open,
+    openWithQuery,
     close,
     setQuery,
     selectIndex,

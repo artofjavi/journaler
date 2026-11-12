@@ -1,4 +1,4 @@
-import { JournalEntry } from "@shared/types/journal-entry";
+import { JournalEntry, NoteEntry } from "@shared/types/journal-entry";
 import { SettingsConfig } from "@shared/types/settings-config";
 import { contextBridge, ipcRenderer } from "electron";
 
@@ -29,6 +29,11 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
   saveEntry: (entry: JournalEntry) => ipcRenderer.invoke("save-entry", entry),
   getPreviousEntry: (date: Date) => ipcRenderer.invoke("get-previous-entry", date),
   getNextEntry: (date: Date) => ipcRenderer.invoke("get-next-entry", date),
+  getNotes: () => ipcRenderer.invoke("get-notes"),
+  saveNote: (note: NoteEntry) => ipcRenderer.invoke("save-note", note),
+  deleteNote: (id: string) => ipcRenderer.invoke("delete-note", id),
+  getTags: () => ipcRenderer.invoke("get-tags"),
+  saveTags: (tags: string[]) => ipcRenderer.invoke("save-tags", tags),
   chooseLibrary: () => ipcRenderer.invoke("choose-library"),
   exportEntries: () => ipcRenderer.invoke("export-entries"),
   printEntries: (fontSize: number, fontFamily: string) =>

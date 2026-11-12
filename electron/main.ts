@@ -1,6 +1,6 @@
 import { FileService } from "./services/file-service";
 import { DEFAULT_SETTINGS } from "@shared/constants/settings-defaults";
-import { JournalEntry } from "@shared/types/journal-entry";
+import { JournalEntry, NoteEntry } from "@shared/types/journal-entry";
 import { type SettingsConfig } from "@shared/types/settings-config";
 import {
   convertDateToFile,
@@ -60,11 +60,7 @@ function createWindow() {
     minHeight: 480,
     ...(IS_MAC
       ? {
-          titleBarStyle: "hiddenInset",
-          trafficLightPosition: {
-            x: 15,
-            y: 12
-          }
+          titleBarStyle: "default"
         }
       : {
           frame: false
@@ -76,7 +72,7 @@ function createWindow() {
       IS_WIN ? "windows/icon.ico" : IS_MAC ? "mac/icon.icns" : "linux/icon.png"
     ),
     webPreferences: {
-      preload: path.join(__dirname, "preload.mjs"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -121,29 +117,11 @@ ipcMain.handle("get-platform", (_event) => {
   return process.platform;
 });
 
-// On macOS, hide the traffic light buttons
-// On Windows/Linux, renderer will handle this
 ipcMain.handle("hide-titlebar", (_event) => {
-  if (IS_MAC) {
-    win?.setWindowButtonVisibility(false);
-  }
-
   return null;
 });
 
-// On macOS, show the traffic light buttons
-// On Windows/Linux, renderer will handle this
 ipcMain.handle("show-titlebar", (_event) => {
-  if (IS_MAC) {
-    // Wait for transition to complete
-    setTimeout(() => {
-      win?.setWindowButtonVisibility(true);
-
-      // Re-apply the traffic light position to prevent drift
-      win?.setWindowButtonPosition({ x: 15, y: 12 });
-    }, 60);
-  }
-
   return null;
 });
 
@@ -239,16 +217,7 @@ ipcMain.handle("get-entry", async (_event, date: Date) => {
 });
 
 ipcMain.handle("save-entry", async (_event, entry: JournalEntry) => {
-  const fileName = convertDateToFile(entry.date);
-
-  if (!fileName) {
-    return {
-      success: false,
-      error: "Entry in data received is not a Date"
-    };
-  }
-
-  return await fileService.writeFile(fileName, entry.content);
+  return fileService.saveEntry(entry);
 });
 
 ipcMain.handle("get-previous-entry", async (_event, date: Date) => {
@@ -284,6 +253,26 @@ ipcMain.handle("get-next-entry", async (_event, date: Date) => {
   return fileService.getEntry(nextDate);
 });
 
+ipcMain.handle("get-notes", async (_event) => {
+  return fileService.getNotes();
+});
+
+ipcMain.handle("save-note", async (_event, note: NoteEntry) => {
+  return fileService.saveNote(note);
+});
+
+ipcMain.handle("delete-note", async (_event, id: string) => {
+  return fileService.deleteNote(id);
+});
+
+ipcMain.handle("get-tags", async (_event) => {
+  return fileService.getTags();
+});
+
+ipcMain.handle("save-tags", async (_event, tags: string[]) => {
+  return fileService.saveTags(tags);
+});
+
 ipcMain.handle("choose-library", async (_event) => {
   try {
     const result = await dialog.showOpenDialog({
@@ -316,9 +305,10 @@ ipcMain.handle("choose-library", async (_event) => {
 
 ipcMain.handle("export-entries", async (_event) => {
   try {
+    const todayStamp = convertDateToFile(new Date())?.replace(/\.md$/, "") ?? "archive";
     const result = await dialog.showSaveDialog({
-      title: "Export Journal Entries",
-      defaultPath: "journaler-export.zip",
+      title: "Export Journal Backup",
+      defaultPath: `journaler-backup-${todayStamp}.zip`,
       filters: [{ name: "ZIP Archive", extensions: ["zip"] }]
     });
 
@@ -326,7 +316,10 @@ ipcMain.handle("export-entries", async (_event) => {
       return { success: false, error: "cancelled" };
     }
 
-    return await fileService.exportEntries(result.filePath);
+    const settingsResult = await fileService.loadSettings();
+    const settings = settingsResult.success ? settingsResult.data : null;
+
+    return await fileService.exportEntries(result.filePath, settings);
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     return { success: false, error: errorMessage };

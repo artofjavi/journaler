@@ -1,6 +1,0 @@
-nodeLinker: hoisted
-
-onlyBuiltDependencies:
-  - electron
-  - esbuild
-  - vue-demi

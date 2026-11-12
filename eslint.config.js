@@ -15,6 +15,7 @@ export default [
       "node_modules",
       "build/compiled",
       "release",
+      "electron",
       "**/vite.config.ts",
       "**/pnpm-lock.yaml",
       "src/components/ui/**"

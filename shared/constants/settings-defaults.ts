@@ -4,7 +4,8 @@ export const DEFAULT_SETTINGS: SettingsConfig = {
   theme: "auto",
   accentColor: "blue",
   textWidth: 640,
-  paragraphSpacing: 4,
+  topSpacing: 48,
+  paragraphSpacing: 20,
   fontSize: 16,
   libraryLocation: ""
 };

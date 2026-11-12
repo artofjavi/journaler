@@ -8,12 +8,11 @@
     leave-to-class="-translate-x-full">
     <div
       v-show="slidePanelStore.isVisible"
-      class="relative w-80">
+      class="relative h-full w-80">
       <div
         ref="scrollContainer"
         class="scroll-container flex w-full flex-col items-start justify-start gap-4 border-r-1 border-zinc-200 bg-zinc-100 p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <SettingsContent v-if="slidePanelStore.activePanel === 'settings'" />
-        <MetricsContent v-if="slidePanelStore.activePanel === 'metrics'" />
       </div>
 
       <CustomScrollbar
@@ -24,7 +23,6 @@
 </template>
 
 <script setup lang="ts">
-import MetricsContent from "@/components/metrics/MetricsContent.vue";
 import SettingsContent from "@/components/settings/SettingsContent.vue";
 import CustomScrollbar from "@/components/shared/scrollbar/CustomScrollbar.vue";
 import { useSlidePanelStore } from "@/store/slide-panel-store";

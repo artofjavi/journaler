@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import type { JournalEntry } from "@shared/types/journal-entry";
+import type { JournalEntry, NoteEntry } from "@shared/types/journal-entry";
 import { Result, VoidResult } from "@shared/types/result";
 import { SettingsConfig } from "@shared/types/settings-config";
 
@@ -9,20 +9,10 @@ declare module "*.vue" {
   export default component;
 }
 
-// Electron IPC types exposed via preload script
 declare global {
   interface Window {
     ipcRenderer?: {
       getPlatform(): Promise<string>;
-      hideTitlebar(): Promise<void>;
-      showTitlebar(): Promise<void>;
-      windowMinimize(): Promise<void>;
-      windowMaximize(): Promise<void>;
-      windowClose(): Promise<void>;
-      isMaximized(): Promise<boolean>;
-      refreshDragRegions(): Promise<void>;
-      onWindowMaximized(callback: () => void): () => void;
-      onWindowUnmaximized(callback: () => void): () => void;
       setup(): Promise<Result<SettingsConfig>>;
       saveSettings(settings: SettingsConfig): Promise<VoidResult>;
       loadSettings(): Promise<Result<SettingsConfig | null>>;
@@ -31,10 +21,13 @@ declare global {
       saveEntry(entry: JournalEntry): Promise<VoidResult>;
       getPreviousEntry(date: Date): Promise<Result<JournalEntry>>;
       getNextEntry(date: Date): Promise<Result<JournalEntry>>;
+      getNotes(): Promise<Result<NoteEntry[]>>;
+      saveNote(note: NoteEntry): Promise<VoidResult>;
+      deleteNote(id: string): Promise<VoidResult>;
+      getTags(): Promise<Result<string[]>>;
+      saveTags(tags: string[]): Promise<VoidResult>;
       chooseLibrary(): Promise<Result<string | null>>;
       exportEntries(): Promise<VoidResult>;
-      printEntries(fontSize: number, fontFamily: string): Promise<VoidResult>;
-      printCurrentEntry(date: Date, fontSize: number, fontFamily: string): Promise<VoidResult>;
     };
   }
 

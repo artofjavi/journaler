@@ -2,7 +2,7 @@ import { useSearchStore } from "@/store/search-store";
 import { onMounted, onUnmounted } from "vue";
 
 /**
- * Capture-phase Cmd/Ctrl+F opens global search; Escape closes when open.
+ * Capture-phase Cmd/Ctrl+F or Cmd/Ctrl+K opens global search; Escape closes when open.
  * Wins over TipTap while the editor is focused.
  */
 export function useGlobalSearchShortcut() {
@@ -11,7 +11,7 @@ export function useGlobalSearchShortcut() {
   const onKeyDown = (event: KeyboardEvent) => {
     const key = event.key.toLowerCase();
 
-    if ((event.metaKey || event.ctrlKey) && key === "f") {
+    if ((event.metaKey || event.ctrlKey) && (key === "f" || key === "k")) {
       event.preventDefault();
       event.stopPropagation();
       searchStore.open();

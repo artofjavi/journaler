@@ -1,3 +1,4 @@
+import { DEFAULT_SETTINGS } from "@shared/constants/settings-defaults";
 import { type AccentColor } from "@shared/types/accent-color";
 import { type SettingsConfig } from "@shared/types/settings-config";
 import { type ThemeType } from "@shared/types/theme-type";
@@ -30,6 +31,14 @@ export const useSettingsStore = defineStore("settings", () => {
     textWidth.value = value;
   };
 
+  // ------------------------ Top Spacing
+
+  const topSpacing = ref<number>(DEFAULT_SETTINGS.topSpacing);
+
+  const setTopSpacing = (value: number) => {
+    topSpacing.value = value;
+  };
+
   // ------------------------ Paragraph Spacing
 
   const paragraphSpacing = ref<number>(20);
@@ -60,6 +69,7 @@ export const useSettingsStore = defineStore("settings", () => {
     theme,
     accentColor,
     textWidth,
+    topSpacing,
     paragraphSpacing,
     fontSize,
     libraryLocation
@@ -78,6 +88,7 @@ export const useSettingsStore = defineStore("settings", () => {
         theme: theme.value,
         accentColor: accentColor.value,
         textWidth: textWidth.value,
+        topSpacing: topSpacing.value,
         paragraphSpacing: paragraphSpacing.value,
         fontSize: fontSize.value,
         libraryLocation: libraryLocation.value
@@ -105,6 +116,7 @@ export const useSettingsStore = defineStore("settings", () => {
     theme.value = settings.theme;
     accentColor.value = settings.accentColor ?? "green";
     textWidth.value = settings.textWidth;
+    topSpacing.value = settings.topSpacing ?? DEFAULT_SETTINGS.topSpacing;
     paragraphSpacing.value = settings.paragraphSpacing;
     fontSize.value = settings.fontSize;
     libraryLocation.value = settings.libraryLocation;
@@ -166,6 +178,8 @@ export const useSettingsStore = defineStore("settings", () => {
     setAccentColor,
     textWidth,
     setTextWidth,
+    topSpacing,
+    setTopSpacing,
     paragraphSpacing,
     setParagraphSpacing,
     fontSize,

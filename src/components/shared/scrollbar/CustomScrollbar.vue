@@ -34,8 +34,6 @@ const props = withDefaults(
 
 // ------------------------ Variables
 
-// ---------- Dimensions / Scroll Position
-
 const scrollHeight = ref(0);
 const clientHeight = ref(0);
 const scrollTop = ref(0);
@@ -43,21 +41,16 @@ const containerTop = ref(0);
 const containerHeight = ref(0);
 const containerRight = ref(0);
 
-// ---------- Track Drag State
-
 const isDragging = ref(false);
 const dragStartY = ref(0);
 const dragStartScrollTop = ref(0);
 
-// ---------- Inactivity
-
 const isVisible = ref(true);
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
-// ---------- Content / DOM Observers
-
 let resizeObserver: ResizeObserver | null = null;
 let mutationObserver: MutationObserver | null = null;
+let observedContainer: HTMLElement | null = null;
 
 // ------------------------ Computed
 
@@ -67,17 +60,17 @@ const thumbHeight = computed(() => {
   if (!showScrollbar.value) return 0;
 
   const ratio = clientHeight.value / scrollHeight.value;
-
-  return Math.max(clientHeight.value * ratio, 40);
+  return Math.min(clientHeight.value, Math.max(clientHeight.value * ratio, 40));
 });
 
 const thumbTop = computed(() => {
   if (!showScrollbar.value) return 0;
 
   const maxScroll = scrollHeight.value - clientHeight.value;
-  const scrollRatio = scrollTop.value / maxScroll;
   const maxThumbTop = clientHeight.value - thumbHeight.value;
+  if (maxScroll <= 0 || maxThumbTop <= 0) return 0;
 
+  const scrollRatio = scrollTop.value / maxScroll;
   return scrollRatio * maxThumbTop;
 });
 
@@ -129,10 +122,9 @@ const handleMouseEnter = () => {
 };
 
 const handleTrackClick = (e: MouseEvent) => {
-  if (!props.scrollContainer) return;
+  if (!props.scrollContainer || clientHeight.value <= 0) return;
 
   const target = e.target as HTMLElement;
-
   if (target.classList.contains("custom-scrollbar-thumb")) return;
 
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -140,9 +132,7 @@ const handleTrackClick = (e: MouseEvent) => {
   const clickRatio = clickY / clientHeight.value;
   const newScrollTop = clickRatio * scrollHeight.value;
 
-  const container = props.scrollContainer;
-
-  container.scrollTo({
+  props.scrollContainer.scrollTo({
     top: newScrollTop,
     behavior: "smooth"
   });
@@ -157,16 +147,16 @@ const handleThumbMouseDown = (e: MouseEvent) => {
 };
 
 const handleMouseMove = (e: MouseEvent) => {
-  if (!isDragging.value || !props.scrollContainer) return;
-
-  const deltaY = e.clientY - dragStartY.value;
+  const container = props.scrollContainer;
+  if (!isDragging.value || !container) return;
 
   const maxScroll = scrollHeight.value - clientHeight.value;
   const maxThumbTop = clientHeight.value - thumbHeight.value;
+  if (maxScroll <= 0 || maxThumbTop <= 0) return;
+
+  const deltaY = e.clientY - dragStartY.value;
   const scrollRatio = deltaY / maxThumbTop;
   const newScrollTop = dragStartScrollTop.value + scrollRatio * maxScroll;
-
-  const container = props.scrollContainer;
 
   container.scrollTop = Math.max(0, Math.min(newScrollTop, maxScroll));
 };
@@ -176,37 +166,56 @@ const handleMouseUp = () => {
   document.body.style.userSelect = "";
 };
 
+const detachObservers = () => {
+  if (observedContainer) {
+    observedContainer.removeEventListener("scroll", handleScroll);
+    observedContainer = null;
+  }
+
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+    resizeObserver = null;
+  }
+
+  if (mutationObserver) {
+    mutationObserver.disconnect();
+    mutationObserver = null;
+  }
+};
+
+const attachObservers = (container: HTMLElement) => {
+  detachObservers();
+  observedContainer = container;
+
+  container.addEventListener("scroll", handleScroll);
+  updateScrollMetrics();
+  resetHideTimer();
+
+  resizeObserver = new ResizeObserver(() => {
+    updateScrollMetrics();
+  });
+  resizeObserver.observe(container);
+
+  for (const child of container.children) {
+    resizeObserver.observe(child);
+  }
+
+  mutationObserver = new MutationObserver(() => {
+    updateScrollMetrics();
+    resetHideTimer();
+  });
+  mutationObserver.observe(container, {
+    childList: true,
+    subtree: true,
+    characterData: true
+  });
+};
+
 // ------------------------ Lifecycle
 
 onMounted(() => {
   if (props.scrollContainer) {
-    props.scrollContainer.addEventListener("scroll", handleScroll);
-
-    updateScrollMetrics();
-    resetHideTimer();
-
-    resizeObserver = new ResizeObserver(() => {
-      updateScrollMetrics();
-    });
-
-    resizeObserver.observe(props.scrollContainer);
-
-    const childNodes = props.scrollContainer.children;
-
-    for (const child of childNodes) {
-      resizeObserver.observe(child);
-    }
-
-    mutationObserver = new MutationObserver(() => {
-      updateScrollMetrics();
-      resetHideTimer();
-    });
-
-    mutationObserver.observe(props.scrollContainer, {
-      childList: true,
-      subtree: true,
-      characterData: true
-    });
+    attachObservers(props.scrollContainer);
   }
 
   document.addEventListener("mousemove", handleMouseMove);
@@ -220,17 +229,7 @@ onBeforeUnmount(() => {
     clearTimeout(hideTimer);
   }
 
-  if (props.scrollContainer) {
-    props.scrollContainer.removeEventListener("scroll", handleScroll);
-  }
-
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-  }
-
-  if (mutationObserver) {
-    mutationObserver.disconnect();
-  }
+  detachObservers();
 
   document.removeEventListener("mousemove", handleMouseMove);
   document.removeEventListener("mouseup", handleMouseUp);
@@ -242,14 +241,11 @@ onBeforeUnmount(() => {
 
 watch(
   () => props.scrollContainer,
-  (newVal, oldVal) => {
-    if (oldVal) {
-      oldVal.removeEventListener("scroll", handleScroll);
-    }
-
+  (newVal) => {
     if (newVal) {
-      newVal.addEventListener("scroll", handleScroll);
-      updateScrollMetrics();
+      attachObservers(newVal);
+    } else {
+      detachObservers();
     }
   }
 );

@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 
-export type SlidePanelType = "none" | "settings" | "metrics";
+export type SlidePanelType = "none" | "settings";
 
 export const useSlidePanelStore = defineStore("slide-panel", () => {
   // ------------------------ Variables

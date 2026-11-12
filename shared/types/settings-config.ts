@@ -5,6 +5,7 @@ export interface SettingsConfig {
   theme: ThemeType;
   accentColor: AccentColor;
   textWidth: number;
+  topSpacing: number;
   paragraphSpacing: number;
   fontSize: number;
   libraryLocation: string;

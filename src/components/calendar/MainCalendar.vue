@@ -9,7 +9,7 @@
       <Button
         size="icon-sm"
         class="w-7"
-        aria-label="Previous Entry"
+        aria-label="Previous Month"
         variant="ghost"
         @click="handlePreviousPress">
         <IconChevronLeft class="size-6 cursor-pointer text-zinc-500 dark:text-zinc-400" />
@@ -60,7 +60,7 @@
       <Button
         size="icon-sm"
         class="w-7"
-        aria-label="Previous Entry"
+        aria-label="Next Month"
         variant="ghost"
         @click="handleNextPress">
         <IconChevronRight class="size-6 cursor-pointer text-zinc-500 dark:text-zinc-400" />
@@ -87,10 +87,24 @@
       <button
         v-for="date in week"
         :key="date.toString()"
-        class="size-7 rounded-sm text-xs"
+        class="relative flex size-7 items-center justify-center rounded-sm text-xs"
         :class="getCellClasses(date)"
+        :title="hasPhoto(date) && !isFutureDate(date) ? 'Contains photos' : undefined"
         @click="handleDatePress(date)">
-        {{ date.day }}
+        <span>{{ date.day }}</span>
+        <span
+          v-if="hasPhoto(date) && !isFutureDate(date)"
+          aria-hidden="true"
+          class="pointer-events-none absolute bottom-[3px] h-[2px] w-2.5 rounded-full"
+          :class="
+            isSelected(date)
+              ? 'bg-white/90 dark:bg-zinc-950/85'
+              : isToday(date)
+                ? 'bg-[rgb(var(--accent-today-fg)/0.9)]'
+                : isCurrentMonth(date)
+                  ? 'bg-[rgb(var(--accent-entry-fg)/0.85)] dark:bg-[rgb(var(--accent-entry-dark-fg)/0.85)]'
+                  : 'bg-[rgb(var(--accent-700))] dark:bg-[rgb(var(--accent-300))]'
+          " />
       </button>
     </div>
   </div>
@@ -119,6 +133,10 @@ const props = defineProps({
     type: Array as PropType<Date[]>,
     default: () => []
   },
+  photoDates: {
+    type: Array as PropType<Date[]>,
+    default: () => []
+  },
   currentDate: {
     type: Object as PropType<Date | null>,
     default: null
@@ -131,7 +149,10 @@ const emit = defineEmits(["dateSelected"]);
 
 // ------------------------ Variables
 
-const currentMonth = ref<CalendarDate>(new CalendarDate(2025, 11, 1));
+const initialNow = new Date();
+const currentMonth = ref<CalendarDate>(
+  new CalendarDate(initialNow.getFullYear(), initialNow.getMonth() + 1, 1)
+);
 
 const selectedDate = ref<CalendarDate | null>(null);
 
@@ -236,18 +257,18 @@ const getCellClasses = (date: CalendarDate) => {
     return "bg-zinc-700 dark:bg-zinc-400 dark:text-zinc-950 text-white hover:bg-zinc-600 dark:hover:bg-zinc-300";
   }
 
-  // Today gets accent background (styles applied via getCellStyles)
+  // Today gets solid accent background
   if (today) {
-    return "calendar-today text-white dark:text-zinc-950";
+    return "calendar-today";
   }
 
-  // Dates with entries get muted accent background (styles applied via getCellStyles)
+  // All dates with entries share the same accent color set in settings
   if (hasEntryInCurrentMonth) {
-    return "calendar-entry-current text-zinc-800 font-semibold";
+    return "calendar-entry-current font-semibold";
   }
 
   if (hasEntryInOtherMonth) {
-    return "calendar-entry-other text-zinc-600 dark:text-zinc-500 font-base";
+    return "calendar-entry-other text-zinc-600 dark:text-zinc-400 font-base";
   }
 
   // Default styling based on whether it's in current month
@@ -262,6 +283,14 @@ const getDate = (date: CalendarDate) => {
   return date.toDate(getLocalTimeZone());
 };
 
+const isSameCalendarDay = (a: Date, b: Date) => {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+};
+
 const isToday = (date: CalendarDate) => {
   return isTodayLib(getDate(date));
 };
@@ -273,7 +302,7 @@ const isCurrentMonth = (date: CalendarDate) => {
 const hasEntry = (date: CalendarDate) => {
   const converted = getDate(date);
 
-  return props.entryDates.some((d) => d.getTime() === converted.getTime());
+  return props.entryDates.some((d) => isSameCalendarDay(d, converted));
 };
 
 const hasEntryCurrentMonth = (date: CalendarDate) => {
@@ -282,6 +311,12 @@ const hasEntryCurrentMonth = (date: CalendarDate) => {
 
 const hasEntryNotCurrentMonth = (date: CalendarDate) => {
   return hasEntry(date) && !isCurrentMonth(date);
+};
+
+const hasPhoto = (date: CalendarDate) => {
+  const converted = getDate(date);
+
+  return props.photoDates.some((d) => isSameCalendarDay(d, converted));
 };
 
 const isSelected = (date: CalendarDate) => {

@@ -2,12 +2,12 @@
   "extends": "@tsconfig/node22/tsconfig.json",
   "include": [
     "vite.config.*",
+    "vite.electron.config.*",
     "vitest.config.*",
     "cypress.config.*",
     "nightwatch.conf.*",
     "playwright.config.*",
     "eslint.config.*",
-    "electron/**/*",
     "shared/**/*"
   ],
   "exclude": ["./build/compiled"],
