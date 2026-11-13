@@ -3,6 +3,7 @@ import { JournalEntry, JournalImage, NoteEntry } from "@shared/types/journal-ent
 import { Result, VoidResult } from "@shared/types/result";
 import { SettingsConfig } from "@shared/types/settings-config";
 import { convertDateToFile } from "@shared/utils/date-utils";
+import { buildJournalDigest, type DigestExportOptions } from "@shared/utils/digest-export";
 import archiver from "archiver";
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
@@ -22,9 +23,30 @@ interface EntrySidecar {
   doc?: Record<string, unknown>;
 }
 
+interface NoteSidecar extends NoteEntry {
+  mdFileName?: string;
+}
+
 function normalizeLocalDate(date: Date | string): Date {
   const d = date instanceof Date ? date : new Date(date);
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function slugifyNoteTitle(title: string): string {
+  const slug = (title || "untitled")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return slug || "untitled";
+}
+
+function deriveTitleFromContent(content: string, fallback = "Untitled"): string {
+  const firstLine = content
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  return firstLine || fallback;
 }
 
 function extractImagesFromDoc(doc?: Record<string, unknown>): JournalImage[] {
@@ -40,7 +62,15 @@ function extractImagesFromDoc(doc?: Record<string, unknown>): JournalImage[] {
   return collected;
 }
 
+function docHasStructuralBlocks(doc?: Record<string, unknown>): boolean {
+  if (!doc || !Array.isArray(doc.content)) return false;
+  return (doc.content as DocNodeLike[]).some(
+    (node) => node?.type === "horizontalRule" || node?.type === "imageBlock"
+  );
+}
+
 function extractTextFromNode(node: DocNodeLike): string {
+  if (node.type === "horizontalRule") return "---";
   if (typeof node.text === "string") return node.text;
   if (!Array.isArray(node.content)) return "";
   return node.content.map(extractTextFromNode).join("");
@@ -129,6 +159,54 @@ export class FileService {
       throw new Error("Invalid note id");
     }
     return this.getMetaPath("notes", `${safeId}.json`);
+  }
+
+  private getNotesMarkdownDir(): string {
+    return path.join(this.rootPath, "notes");
+  }
+
+  private getNoteMarkdownPath(mdFileName: string): string {
+    const safeName = path.basename(mdFileName);
+    if (!safeName || safeName !== mdFileName || !safeName.endsWith(".md")) {
+      throw new Error("Invalid note markdown filename");
+    }
+    return path.join(this.getNotesMarkdownDir(), safeName);
+  }
+
+  private async readNoteSidecar(id: string): Promise<NoteSidecar | null> {
+    try {
+      const raw = await fsPromises.readFile(this.getNoteFilePath(id), "utf-8");
+      const parsed = JSON.parse(raw) as unknown;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as NoteSidecar)
+        : null;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private resolveUniqueNoteMdFileName(
+    title: string,
+    currentMdFileName: string | undefined,
+    occupiedNames: Set<string>
+  ): string {
+    const base = slugifyNoteTitle(title);
+    const firstCandidate = `${base}.md`;
+    if (firstCandidate === currentMdFileName || !occupiedNames.has(firstCandidate)) {
+      return firstCandidate;
+    }
+
+    let suffix = 2;
+    while (true) {
+      const candidate = `${base}-${suffix}.md`;
+      if (candidate === currentMdFileName || !occupiedNames.has(candidate)) {
+        return candidate;
+      }
+      suffix += 1;
+    }
   }
 
   private getFilePath(fileName?: string): string {
@@ -271,8 +349,9 @@ export class FileService {
         const doc = sidecar?.doc;
         const images = doc ? extractImagesFromDoc(doc) : (sidecar?.images ?? []);
         const tags = sidecar?.tags ?? [];
+        const hasBlocks = docHasStructuralBlocks(doc);
 
-        if (content === "" && images.length === 0 && tags.length === 0) {
+        if (content === "" && images.length === 0 && !hasBlocks && tags.length === 0) {
           continue;
         }
 
@@ -451,13 +530,14 @@ export class FileService {
       const docImages = entry.doc ? extractImagesFromDoc(entry.doc) : [];
       const fallbackImages = docImages.length === 0 ? (entry.images ?? []) : [];
       const hasImages = docImages.length > 0 || fallbackImages.length > 0;
+      const hasBlocks = docHasStructuralBlocks(entry.doc);
       const hasTags = Boolean(entry.tags && entry.tags.length > 0);
       const hasText = entry.content !== "";
 
       const sidecarPath = this.getEntrySidecarPath(fileName);
       const mdPath = this.getFilePath(fileName);
 
-      if (!hasText && !hasImages && !hasTags) {
+      if (!hasText && !hasImages && !hasBlocks && !hasTags) {
         await Promise.all([
           fsPromises.rm(mdPath, { force: true }),
           fsPromises.rm(sidecarPath, { force: true })
@@ -470,7 +550,7 @@ export class FileService {
         return writeResult;
       }
 
-      if (hasImages || hasTags || entry.doc) {
+      if (hasImages || hasBlocks || hasTags || entry.doc) {
         const sidecarPayload: EntrySidecar = {
           content: entry.content,
           ...(hasTags ? { tags: entry.tags } : {}),
@@ -494,27 +574,126 @@ export class FileService {
 
   async getNotes(): Promise<Result<NoteEntry[]>> {
     try {
-      const notesDir = this.getMetaPath("notes");
-      let files: string[] = [];
+      const notesMetaDir = this.getMetaPath("notes");
+      const notesMdDir = this.getNotesMarkdownDir();
+
+      let metaFiles: string[] = [];
       try {
-        files = await fsPromises.readdir(notesDir);
+        metaFiles = await fsPromises.readdir(notesMetaDir);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          return { success: true, data: [] };
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
         }
-        throw error;
+      }
+
+      let mdFiles: string[] = [];
+      try {
+        mdFiles = await fsPromises.readdir(notesMdDir);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
+        }
       }
 
       const notes: NoteEntry[] = [];
-      for (const file of files) {
+      const claimedMdFiles = new Set<string>();
+      const occupiedMdFiles = new Set<string>(mdFiles.filter((f) => f.endsWith(".md")));
+      const existingIds = new Set<string>();
+
+      for (const file of metaFiles) {
         if (!file.endsWith(".json")) continue;
         try {
-          const raw = await fsPromises.readFile(path.join(notesDir, file), "utf-8");
-          const parsed = JSON.parse(raw) as NoteEntry;
-          const images = parsed.doc ? extractImagesFromDoc(parsed.doc) : (parsed.images ?? []);
-          notes.push({ ...parsed, images });
+          const metaPath = path.join(notesMetaDir, file);
+          const raw = await fsPromises.readFile(metaPath, "utf-8");
+          const parsed = JSON.parse(raw) as NoteSidecar;
+          existingIds.add(parsed.id);
+
+          let mdFileName = parsed.mdFileName;
+          let content = parsed.content ?? "";
+          let doc = parsed.doc;
+          let title = parsed.title;
+
+          if (mdFileName) {
+            try {
+              const mdPath = this.getNoteMarkdownPath(mdFileName);
+              const mdContent = await fsPromises.readFile(mdPath, "utf-8");
+              claimedMdFiles.add(mdFileName);
+              occupiedMdFiles.add(mdFileName);
+              if (mdContent !== content) {
+                content = mdContent;
+                doc = undefined;
+                title = deriveTitleFromContent(mdContent, title);
+              }
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+                const mdPath = this.getNoteMarkdownPath(mdFileName);
+                await fsPromises.mkdir(notesMdDir, { recursive: true });
+                await fsPromises.writeFile(mdPath, content, "utf-8");
+                claimedMdFiles.add(mdFileName);
+                occupiedMdFiles.add(mdFileName);
+              } else {
+                throw error;
+              }
+            }
+          } else {
+            mdFileName = this.resolveUniqueNoteMdFileName(parsed.title, undefined, occupiedMdFiles);
+            await fsPromises.mkdir(notesMdDir, { recursive: true });
+            await fsPromises.writeFile(this.getNoteMarkdownPath(mdFileName), content, "utf-8");
+            claimedMdFiles.add(mdFileName);
+            occupiedMdFiles.add(mdFileName);
+            await fsPromises.writeFile(
+              metaPath,
+              JSON.stringify({ ...parsed, mdFileName }),
+              "utf-8"
+            );
+          }
+
+          const images = doc ? extractImagesFromDoc(doc) : (parsed.images ?? []);
+          const { mdFileName: _omitMd, ...cleanNote } = parsed;
+          notes.push({ ...cleanNote, title, content, images, ...(doc ? { doc } : {}) });
         } catch {
           // Skip malformed note file
+        }
+      }
+
+      for (const file of mdFiles) {
+        if (!file.endsWith(".md") || claimedMdFiles.has(file)) continue;
+        try {
+          const mdPath = this.getNoteMarkdownPath(file);
+          const [content, stat] = await Promise.all([
+            fsPromises.readFile(mdPath, "utf-8"),
+            fsPromises.stat(mdPath)
+          ]);
+          const fallbackName = file.replace(/\.md$/, "").replace(/-/g, " ");
+          const title = deriveTitleFromContent(content, fallbackName || "Untitled");
+          const baseId = `note-${file.replace(/\.md$/, "").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+          let id = baseId;
+          let counter = 2;
+          while (existingIds.has(id)) {
+            id = `${baseId}-${counter}`;
+            counter += 1;
+          }
+          existingIds.add(id);
+
+          const createdAt = stat.birthtime.toISOString();
+          const updatedAt = stat.mtime.toISOString();
+          const sidecar: NoteSidecar = {
+            id,
+            title,
+            content,
+            tags: [],
+            images: [],
+            createdAt,
+            updatedAt,
+            mdFileName: file
+          };
+          await fsPromises.mkdir(notesMetaDir, { recursive: true });
+          await fsPromises.writeFile(this.getNoteFilePath(id), JSON.stringify(sidecar), "utf-8");
+
+          const { mdFileName: _omitMd, ...cleanNote } = sidecar;
+          notes.push(cleanNote);
+        } catch {
+          // Skip unreadable markdown note
         }
       }
 
@@ -530,9 +709,59 @@ export class FileService {
 
   async saveNote(note: NoteEntry): Promise<VoidResult> {
     try {
-      const filePath = this.getNoteFilePath(note.id);
+      const sidecarPath = this.getNoteFilePath(note.id);
+      const notesMetaDir = this.getMetaPath("notes");
+      const notesMdDir = this.getNotesMarkdownDir();
+
+      const existingSidecar = await this.readNoteSidecar(note.id);
+      const previousMdFileName = existingSidecar?.mdFileName;
+
+      const occupiedNames = new Set<string>();
+      try {
+        const mdFiles = await fsPromises.readdir(notesMdDir);
+        for (const f of mdFiles) {
+          if (f.endsWith(".md") && f !== previousMdFileName) {
+            occupiedNames.add(f);
+          }
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+
+      try {
+        const metaFiles = await fsPromises.readdir(notesMetaDir);
+        for (const f of metaFiles) {
+          if (!f.endsWith(".json") || f === `${note.id}.json`) continue;
+          try {
+            const raw = await fsPromises.readFile(path.join(notesMetaDir, f), "utf-8");
+            const parsed = JSON.parse(raw) as NoteSidecar;
+            if (parsed.mdFileName) occupiedNames.add(parsed.mdFileName);
+          } catch {
+            // Ignore malformed sidecar
+          }
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+
+      const mdFileName = this.resolveUniqueNoteMdFileName(
+        note.title,
+        previousMdFileName,
+        occupiedNames
+      );
+
+      await Promise.all([
+        fsPromises.mkdir(notesMdDir, { recursive: true }),
+        fsPromises.mkdir(notesMetaDir, { recursive: true })
+      ]);
+
+      await fsPromises.writeFile(this.getNoteMarkdownPath(mdFileName), note.content ?? "", "utf-8");
+      if (previousMdFileName && previousMdFileName !== mdFileName) {
+        await fsPromises.rm(this.getNoteMarkdownPath(previousMdFileName), { force: true });
+      }
+
       const hasDocImages = Boolean(note.doc && extractImagesFromDoc(note.doc).length > 0);
-      const persistedNote: NoteEntry = hasDocImages
+      const persistedNote: NoteSidecar = hasDocImages
         ? {
             id: note.id,
             title: note.title,
@@ -540,12 +769,16 @@ export class FileService {
             ...(note.tags ? { tags: note.tags } : {}),
             doc: note.doc,
             createdAt: note.createdAt,
-            updatedAt: note.updatedAt
+            updatedAt: note.updatedAt,
+            ...(note.archivedAt ? { archivedAt: note.archivedAt } : {}),
+            mdFileName
           }
-        : note;
+        : {
+            ...note,
+            mdFileName
+          };
 
-      await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
-      await fsPromises.writeFile(filePath, JSON.stringify(persistedNote), "utf-8");
+      await fsPromises.writeFile(sidecarPath, JSON.stringify(persistedNote), "utf-8");
       return { success: true };
     } catch (err) {
       return {
@@ -557,8 +790,12 @@ export class FileService {
 
   async deleteNote(id: string): Promise<VoidResult> {
     try {
+      const existingSidecar = await this.readNoteSidecar(id);
       const filePath = this.getNoteFilePath(id);
       await fsPromises.rm(filePath, { force: true });
+      if (existingSidecar?.mdFileName) {
+        await fsPromises.rm(this.getNoteMarkdownPath(existingSidecar.mdFileName), { force: true });
+      }
       return { success: true };
     } catch (err) {
       return {
@@ -742,6 +979,27 @@ export class FileService {
         });
       }
     });
+  }
+
+  async exportDigest(savePath: string, options: DigestExportOptions): Promise<VoidResult> {
+    try {
+      const [entriesResult, notesResult] = await Promise.all([
+        this.readAllEntries(),
+        this.getNotes()
+      ]);
+
+      const entries = entriesResult.success ? entriesResult.data : [];
+      const notes = notesResult.success ? notesResult.data : [];
+      const digest = buildJournalDigest({ entries, notes, options });
+
+      await fsPromises.writeFile(savePath, digest.markdown, "utf-8");
+      return { success: true };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Failed to export digest"
+      };
+    }
   }
 
   async generatePrintableHTMLForEntry(

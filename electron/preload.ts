@@ -1,5 +1,6 @@
 import { JournalEntry, NoteEntry } from "@shared/types/journal-entry";
 import { SettingsConfig } from "@shared/types/settings-config";
+import type { DigestExportOptions } from "@shared/utils/digest-export";
 import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("ipcRenderer", {
@@ -36,6 +37,7 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
   saveTags: (tags: string[]) => ipcRenderer.invoke("save-tags", tags),
   chooseLibrary: () => ipcRenderer.invoke("choose-library"),
   exportEntries: () => ipcRenderer.invoke("export-entries"),
+  exportDigest: (options: DigestExportOptions) => ipcRenderer.invoke("export-digest", options),
   printEntries: (fontSize: number, fontFamily: string) =>
     ipcRenderer.invoke("print-entries", fontSize, fontFamily),
   printCurrentEntry: (date: Date, fontSize: number, fontFamily: string) =>

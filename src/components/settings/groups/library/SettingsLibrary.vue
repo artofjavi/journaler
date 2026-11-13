@@ -11,11 +11,18 @@
     <SettingsItem name="Backup">
       <SettingsLibraryBackup />
     </SettingsItem>
+
+    <!-- Digest -->
+
+    <SettingsItem name="Digest">
+      <SettingsLibraryDigest />
+    </SettingsItem>
   </SettingsGroup>
 </template>
 
 <script setup lang="ts">
 import SettingsLibraryBackup from "@/components/settings/groups/library/SettingsLibraryBackup.vue";
+import SettingsLibraryDigest from "@/components/settings/groups/library/SettingsLibraryDigest.vue";
 import SettingsLibraryLocation from "@/components/settings/groups/library/SettingsLibraryLocation.vue";
 import SettingsGroup from "@/components/settings/groups/SettingsGroup.vue";
 import SettingsItem from "@/components/settings/groups/SettingsItem.vue";

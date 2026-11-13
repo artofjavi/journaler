@@ -18,6 +18,7 @@
 import { useSearchStore } from "@/store/search-store";
 import { useSlidePanelStore } from "@/store/slide-panel-store";
 import type { FunctionalComponent } from "vue";
+import IconArchive from "~icons/mdi/archive-outline";
 import IconSearch from "~icons/mdi/magnify";
 import IconSettings from "~icons/mdi/settings-outline";
 
@@ -42,6 +43,13 @@ const items: SideMenuItem[] = [
     icon: IconSearch,
     action: () => {
       searchStore.open();
+    }
+  },
+  {
+    name: "Archive",
+    icon: IconArchive,
+    action: () => {
+      slidePanelStore.togglePanel("archive");
     }
   },
   {

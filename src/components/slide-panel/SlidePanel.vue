@@ -13,6 +13,7 @@
         ref="scrollContainer"
         class="scroll-container flex w-full flex-col items-start justify-start gap-4 border-r-1 border-zinc-200 bg-zinc-100 p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <SettingsContent v-if="slidePanelStore.activePanel === 'settings'" />
+        <ArchiveContent v-else-if="slidePanelStore.activePanel === 'archive'" />
       </div>
 
       <CustomScrollbar
@@ -23,6 +24,7 @@
 </template>
 
 <script setup lang="ts">
+import ArchiveContent from "@/components/archive/ArchiveContent.vue";
 import SettingsContent from "@/components/settings/SettingsContent.vue";
 import CustomScrollbar from "@/components/shared/scrollbar/CustomScrollbar.vue";
 import { useSlidePanelStore } from "@/store/slide-panel-store";

@@ -55,7 +55,7 @@ body,
 @layer base {
   body {
     @apply m-0 h-dvh w-full overflow-hidden bg-zinc-50 p-0 font-sans font-normal tracking-normal antialiased;
-    line-height: auto;
+    line-height: normal;
   }
 
   .dark body {
@@ -146,10 +146,29 @@ Tiptap (Editor)
   }
 
   blockquote {
-    @apply border-l-2 border-zinc-300 pl-4 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400;
+    @apply border-l-2 border-zinc-300 pl-4 text-zinc-600 italic dark:border-zinc-700 dark:text-zinc-400;
     margin-bottom: var(--paragraph-spacing, 20px);
     font-size: var(--font-size, 16px);
     line-height: 1.6;
+  }
+
+  blockquote p {
+    @apply text-zinc-600 dark:text-zinc-400;
+    margin-bottom: 0.35em;
+  }
+
+  blockquote p:last-child {
+    margin-bottom: 0;
+  }
+
+  hr {
+    @apply border-0 border-t border-zinc-200 dark:border-zinc-800;
+    margin-top: var(--paragraph-spacing, 20px);
+    margin-bottom: var(--paragraph-spacing, 20px);
+  }
+
+  hr.ProseMirror-selectednode {
+    border-top-color: rgb(var(--accent-500));
   }
 
   pre,
@@ -172,6 +191,30 @@ Tiptap (Editor)
     padding: 0;
   }
 
+  strong,
+  b {
+    @apply font-semibold text-zinc-900 dark:text-zinc-100;
+  }
+
+  u {
+    text-decoration-line: underline;
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 3px;
+  }
+
+  a {
+    color: rgb(var(--accent-700));
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    cursor: pointer;
+    transition: opacity 150ms ease;
+  }
+
+  a:hover {
+    opacity: 0.78;
+  }
+
   .image-block-node {
     margin-bottom: var(--paragraph-spacing, 20px);
   }
@@ -183,6 +226,10 @@ Tiptap (Editor)
   ::selection {
     @apply bg-blue-100 text-zinc-700;
   }
+}
+
+.dark .tiptap a {
+  color: rgb(var(--accent-300));
 }
 
 .journal-inline-tag {

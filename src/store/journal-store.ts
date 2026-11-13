@@ -186,7 +186,8 @@ export const useJournalStore = defineStore("journal", () => {
           : {}),
         ...(rawDoc ? { doc: rawDoc } : {}),
         createdAt: rawNote.createdAt,
-        updatedAt: rawNote.updatedAt
+        updatedAt: rawNote.updatedAt,
+        ...(rawNote.archivedAt ? { archivedAt: rawNote.archivedAt } : {})
       };
 
       const result = await window.ipcRenderer.saveNote(payload);
@@ -241,6 +242,13 @@ export const useJournalStore = defineStore("journal", () => {
     }
   };
 
+  const docHasStructuralBlocks = (doc?: Record<string, unknown>): boolean => {
+    if (!doc || !Array.isArray(doc.content)) return false;
+    return (doc.content as Array<{ type?: unknown }>).some(
+      (node) => node?.type === "horizontalRule" || node?.type === "imageBlock"
+    );
+  };
+
   const updateContent = (
     content: string,
     doc?: Record<string, unknown>,
@@ -267,8 +275,10 @@ export const useJournalStore = defineStore("journal", () => {
 
       if (doc) {
         const images = extractImagesFromDoc(doc);
+        const hasBlocks = docHasStructuralBlocks(doc);
         currentNote.value.images = images;
-        currentNote.value.doc = images.length > 0 ? doc : undefined;
+        currentNote.value.doc =
+          normalizedContent !== "" || images.length > 0 || hasBlocks ? doc : undefined;
       }
 
       syncCurrentNoteToNotes();
@@ -282,8 +292,10 @@ export const useJournalStore = defineStore("journal", () => {
 
       if (doc) {
         const images = extractImagesFromDoc(doc);
+        const hasBlocks = docHasStructuralBlocks(doc);
         current.value.images = images;
-        current.value.doc = images.length > 0 ? doc : undefined;
+        current.value.doc =
+          normalizedContent !== "" || images.length > 0 || hasBlocks ? doc : undefined;
       }
 
       syncCurrentToAllEntries();
@@ -397,11 +409,102 @@ export const useJournalStore = defineStore("journal", () => {
     }
   };
 
+  const activeNotes = computed(() => notes.value.filter((n) => !n.archivedAt));
+
+  const archivedNotes = computed(() => {
+    return notes.value
+      .filter((n) => Boolean(n.archivedAt))
+      .sort(
+        (a, b) =>
+          new Date(b.archivedAt ?? b.updatedAt).getTime() -
+          new Date(a.archivedAt ?? a.updatedAt).getTime()
+      );
+  });
+
+  const persistNoteEntry = async (note: NoteEntry) => {
+    if (!window.ipcRenderer) return;
+    const rawNote = toRaw(note);
+    const rawDoc = rawNote.doc
+      ? (JSON.parse(JSON.stringify(toRaw(rawNote.doc))) as Record<string, unknown>)
+      : undefined;
+    const docImages = rawDoc ? extractImagesFromDoc(rawDoc) : [];
+    const payload: NoteEntry = {
+      id: rawNote.id,
+      title: rawNote.title,
+      content: rawNote.content,
+      tags: rawNote.tags ?? [],
+      ...(docImages.length === 0 && (rawNote.images?.length ?? 0) > 0
+        ? { images: (rawNote.images ?? []).map((img) => ({ ...toRaw(img) })) }
+        : {}),
+      ...(rawDoc ? { doc: rawDoc } : {}),
+      createdAt: rawNote.createdAt,
+      updatedAt: rawNote.updatedAt,
+      ...(rawNote.archivedAt ? { archivedAt: rawNote.archivedAt } : {})
+    };
+    const result = await window.ipcRenderer.saveNote(payload);
+    if (result && !result.success) {
+      toast.error("Could not update note", {
+        description: result.error || "Storage limit reached"
+      });
+    }
+  };
+
+  const archiveNote = async (id: string) => {
+    const index = notes.value.findIndex((n) => n.id === id);
+    if (index < 0) return;
+
+    const wasActive = currentNote.value?.id === id;
+    if (wasActive) {
+      await saveCurrent();
+    }
+
+    const archivedAt = new Date().toISOString();
+    const target = notes.value[index];
+    if (!target) return;
+    const updated: NoteEntry = { ...target, archivedAt };
+    notes.value[index] = updated;
+
+    if (wasActive && currentNote.value) {
+      currentNote.value.archivedAt = archivedAt;
+    }
+
+    await persistNoteEntry(updated);
+
+    if (wasActive) {
+      currentNote.value = null;
+      const nextNote = activeNotes.value[0];
+      if (nextNote) {
+        await openNote(nextNote.id);
+      } else {
+        await getEntry(new Date());
+      }
+    }
+  };
+
+  const unarchiveNote = async (id: string) => {
+    const index = notes.value.findIndex((n) => n.id === id);
+    if (index < 0) return;
+
+    const target = notes.value[index];
+    if (!target) return;
+    const { archivedAt: _omit, ...rest } = target;
+    const updated: NoteEntry = { ...rest };
+    notes.value[index] = updated;
+
+    if (currentNote.value?.id === id) {
+      delete currentNote.value.archivedAt;
+    }
+
+    await persistNoteEntry(updated);
+  };
+
   const deleteNote = async (id: string) => {
     const wasActive = currentNote.value?.id === id;
     if (wasActive) {
       cancelScheduledSave();
     }
+    const target = notes.value.find((n) => n.id === id);
+    const wasArchived = Boolean(target?.archivedAt);
     notes.value = notes.value.filter((n) => n.id !== id);
 
     if (window.ipcRenderer) {
@@ -410,7 +513,8 @@ export const useJournalStore = defineStore("journal", () => {
 
     if (wasActive) {
       currentNote.value = null;
-      const nextNote = notes.value[0];
+      const pool = wasArchived ? archivedNotes.value : activeNotes.value;
+      const nextNote = pool[0] ?? activeNotes.value[0];
       if (nextNote) {
         await openNote(nextNote.id);
       } else {
@@ -451,9 +555,13 @@ export const useJournalStore = defineStore("journal", () => {
     setCurrent,
     currentNote,
     notes,
+    activeNotes,
+    archivedNotes,
     loadNotes,
     openNote,
     createNote,
+    archiveNote,
+    unarchiveNote,
     deleteNote,
     tagCollection,
     loadTags,

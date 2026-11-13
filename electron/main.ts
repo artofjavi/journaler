@@ -8,8 +8,9 @@ import {
   getPreviousDate,
   isFutureDate
 } from "@shared/utils/date-utils";
+import { type DigestExportOptions, getDigestFilename } from "@shared/utils/digest-export";
 import "dotenv/config";
-import { app, BrowserWindow, dialog, ipcMain, screen } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, screen, shell } from "electron";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -81,6 +82,13 @@ function createWindow() {
   });
 
   setupWindowEvents();
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^(https?:|mailto:|tel:)/i.test(url)) {
+      void shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
 
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL);
@@ -320,6 +328,26 @@ ipcMain.handle("export-entries", async (_event) => {
     const settings = settingsResult.success ? settingsResult.data : null;
 
     return await fileService.exportEntries(result.filePath, settings);
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    return { success: false, error: errorMessage };
+  }
+});
+
+ipcMain.handle("export-digest", async (_event, options: DigestExportOptions) => {
+  try {
+    const defaultName = getDigestFilename(options);
+    const result = await dialog.showSaveDialog({
+      title: "Export Journal Digest",
+      defaultPath: defaultName,
+      filters: [{ name: "Markdown", extensions: ["md"] }]
+    });
+
+    if (result.canceled || !result.filePath) {
+      return { success: false, error: "cancelled" };
+    }
+
+    return await fileService.exportDigest(result.filePath, options);
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     return { success: false, error: errorMessage };

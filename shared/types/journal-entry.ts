@@ -21,4 +21,5 @@ export interface NoteEntry {
   doc?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+  archivedAt?: string;
 }

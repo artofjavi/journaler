@@ -8,6 +8,7 @@ import {
   getPreviousDate,
   isFutureDate
 } from "@shared/utils/date-utils";
+import { buildJournalDigest, type DigestExportOptions } from "@shared/utils/digest-export";
 
 const SETTINGS_STORAGE_KEY = "journaler:settings";
 const ENTRIES_STORAGE_KEY = "journaler:entries";
@@ -128,7 +129,15 @@ function extractImagesFromDoc(doc?: Record<string, unknown>): JournalImage[] {
   return collected;
 }
 
+function docHasStructuralBlocks(doc?: Record<string, unknown>): boolean {
+  if (!doc || !Array.isArray(doc.content)) return false;
+  return (doc.content as DocNodeLike[]).some(
+    (node) => node?.type === "horizontalRule" || node?.type === "imageBlock"
+  );
+}
+
 function extractTextFromNode(node: DocNodeLike): string {
+  if (node.type === "horizontalRule") return "---";
   if (typeof node.text === "string") return node.text;
   if (!Array.isArray(node.content)) return "";
   return node.content.map(extractTextFromNode).join("");
@@ -435,11 +444,12 @@ export function installWebIpcShim(): void {
         }
 
         const hasImages = Boolean(entry.doc && extractImagesFromDoc(entry.doc).length > 0);
+        const hasBlocks = docHasStructuralBlocks(entry.doc);
         const hasTags = Boolean(entry.tags && entry.tags.length > 0);
         const hasText = entry.content !== "";
 
         const map = readEntriesMap();
-        if (hasText || hasImages || hasTags) {
+        if (hasText || hasImages || hasBlocks || hasTags) {
           map[fileName] = entry.content;
         } else {
           delete map[fileName];
@@ -447,7 +457,7 @@ export function installWebIpcShim(): void {
         writeEntriesMap(map);
 
         const docsMap = readDocsMap();
-        if (hasImages && entry.doc) {
+        if ((hasText || hasImages || hasBlocks || hasTags) && entry.doc) {
           docsMap[fileName] = entry.doc;
         } else {
           delete docsMap[fileName];
@@ -520,7 +530,8 @@ export function installWebIpcShim(): void {
               ...(note.tags ? { tags: note.tags } : {}),
               doc: note.doc,
               createdAt: note.createdAt,
-              updatedAt: note.updatedAt
+              updatedAt: note.updatedAt,
+              ...(note.archivedAt ? { archivedAt: note.archivedAt } : {})
             }
           : note;
 
@@ -719,6 +730,32 @@ export function installWebIpcShim(): void {
         return {
           success: false,
           error: err instanceof Error ? err.message : "Export failed"
+        };
+      }
+    },
+
+    async exportDigest(options: DigestExportOptions): Promise<VoidResult> {
+      try {
+        const entriesResult = await getAllEntriesInternal();
+        const entries = entriesResult.success ? entriesResult.data : [];
+        const notes = readNotesArray();
+
+        const digest = buildJournalDigest({ entries, notes, options });
+        const blob = new Blob([digest.markdown], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = digest.filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+        return { success: true };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : "Digest export failed"
         };
       }
     }

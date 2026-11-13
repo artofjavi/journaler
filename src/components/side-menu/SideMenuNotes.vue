@@ -15,7 +15,7 @@
       </div>
 
       <span
-        v-if="journalStore.notes.length > 0"
+        v-if="journalStore.activeNotes.length > 0"
         class="text-[11px] text-zinc-400 tabular-nums dark:text-zinc-500">
         {{ filteredNotes.length }}
       </span>
@@ -54,7 +54,7 @@
 
     <!-- Notes List -->
     <p
-      v-if="journalStore.notes.length === 0"
+      v-if="journalStore.activeNotes.length === 0"
       class="py-1 text-xs text-zinc-400 dark:text-zinc-500">
       No notes yet — click + for ideas
     </p>
@@ -95,14 +95,25 @@
           </span>
         </button>
 
-        <button
-          type="button"
-          title="Delete note"
-          aria-label="Delete note"
-          class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-zinc-300/60 hover:text-zinc-700 focus-visible:opacity-100 focus-visible:outline-none dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
-          @click.stop="handleDeleteNote(note.id)">
-          <IconClose class="size-3.5" />
-        </button>
+        <div class="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            title="Archive note"
+            aria-label="Archive note"
+            class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-zinc-300/60 hover:text-zinc-700 focus-visible:opacity-100 focus-visible:outline-none dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+            @click.stop="handleArchiveNote(note.id)">
+            <IconArchive class="size-3.5" />
+          </button>
+
+          <button
+            type="button"
+            title="Delete note"
+            aria-label="Delete note"
+            class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-zinc-300/60 hover:text-zinc-700 focus-visible:opacity-100 focus-visible:outline-none dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+            @click.stop="handleDeleteNote(note.id)">
+            <IconClose class="size-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -111,6 +122,7 @@
 <script setup lang="ts">
 import { useJournalStore } from "@/store/journal-store";
 import { computed, ref, watch } from "vue";
+import IconArchive from "~icons/mdi/archive-outline";
 import IconClose from "~icons/mdi/close";
 import IconPlus from "~icons/mdi/plus";
 
@@ -118,14 +130,14 @@ const journalStore = useJournalStore();
 const activeTagFilter = ref<string>("all");
 
 const sortedNotes = computed(() => {
-  return [...journalStore.notes].sort(
+  return [...journalStore.activeNotes].sort(
     (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
   );
 });
 
 const noteTags = computed(() => {
   const tagSet = new Set<string>();
-  for (const note of journalStore.notes) {
+  for (const note of journalStore.activeNotes) {
     for (const tag of note.tags ?? []) {
       tagSet.add(tag);
     }
@@ -158,6 +170,10 @@ const handleCreateNote = async () => {
 
 const handleOpenNote = async (id: string) => {
   await journalStore.openNote(id);
+};
+
+const handleArchiveNote = async (id: string) => {
+  await journalStore.archiveNote(id);
 };
 
 const handleDeleteNote = async (id: string) => {

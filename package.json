@@ -105,7 +105,6 @@
     "appId": "com.davidglassman.journaler",
     "productName": "Journaler",
     "asar": true,
-    "afterSign": "build/resources/scripts/notarize.js",
     "directories": {
       "output": "release/${version}"
     },
@@ -129,8 +128,6 @@
       ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "entitlements": "build/resources/entitlements.mac.plist",
-      "entitlementsInherit": "build/resources/entitlements.mac.plist",
       "x64ArchFiles": "*"
     },
     "win": {

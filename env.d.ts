@@ -2,6 +2,7 @@
 import type { JournalEntry, NoteEntry } from "@shared/types/journal-entry";
 import { Result, VoidResult } from "@shared/types/result";
 import { SettingsConfig } from "@shared/types/settings-config";
+import type { DigestExportOptions } from "@shared/utils/digest-export";
 
 declare module "*.vue" {
   import type { DefineComponent } from "vue";
@@ -28,6 +29,7 @@ declare global {
       saveTags(tags: string[]): Promise<VoidResult>;
       chooseLibrary(): Promise<Result<string | null>>;
       exportEntries(): Promise<VoidResult>;
+      exportDigest(options: DigestExportOptions): Promise<VoidResult>;
     };
   }
 
