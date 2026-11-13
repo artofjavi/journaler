@@ -71,15 +71,28 @@
       <div
         v-for="note in filteredNotes"
         :key="note.id"
-        class="group flex w-full min-w-0 items-center justify-between gap-1 rounded-md px-2 py-1.5 transition-colors"
-        :class="
+        :draggable="filteredNotes.length > 1"
+        class="group relative flex w-full min-w-0 items-center justify-between gap-1 rounded-md px-2 py-1.5 transition-colors"
+        :class="[
           journalStore.currentNote?.id === note.id
             ? 'bg-zinc-200/80 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-100'
-            : 'text-zinc-600 hover:bg-zinc-200/50 dark:text-zinc-300/80 dark:hover:bg-zinc-800/60'
-        ">
+            : 'text-zinc-600 hover:bg-zinc-200/50 dark:text-zinc-300/80 dark:hover:bg-zinc-800/60',
+          draggedNoteId === note.id ? 'opacity-40' : ''
+        ]"
+        @dragstart="onDragStart(note.id, $event)"
+        @dragover.prevent="onDragOver(note.id, $event)"
+        @dragleave="onDragLeave(note.id, $event)"
+        @drop.prevent="onDrop(note.id)"
+        @dragend="onDragEnd">
+        <span
+          v-if="dropTargetId === note.id"
+          aria-hidden="true"
+          class="pointer-events-none absolute right-1 left-1 z-10 h-0.5 rounded-full bg-[rgb(var(--accent-500))]"
+          :class="dropPosition === 'before' ? '-top-px' : '-bottom-px'" />
         <button
           type="button"
           class="flex min-w-0 flex-1 cursor-pointer flex-col items-start text-left focus-visible:outline-none"
+          :class="filteredNotes.length > 1 ? 'cursor-grab active:cursor-grabbing' : ''"
           @click="handleOpenNote(note.id)">
           <span class="w-full truncate text-sm font-normal">
             {{ note.title || "Untitled" }}
@@ -95,11 +108,14 @@
           </span>
         </button>
 
-        <div class="flex shrink-0 items-center gap-0.5">
+        <div
+          class="flex shrink-0 items-center gap-0.5"
+          @mousedown.stop>
           <button
             type="button"
             title="Archive note"
             aria-label="Archive note"
+            draggable="false"
             class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-zinc-300/60 hover:text-zinc-700 focus-visible:opacity-100 focus-visible:outline-none dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
             @click.stop="handleArchiveNote(note.id)">
             <IconArchive class="size-3.5" />
@@ -109,6 +125,7 @@
             type="button"
             title="Delete note"
             aria-label="Delete note"
+            draggable="false"
             class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-zinc-300/60 hover:text-zinc-700 focus-visible:opacity-100 focus-visible:outline-none dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
             @click.stop="handleDeleteNote(note.id)">
             <IconClose class="size-3.5" />
@@ -129,11 +146,11 @@ import IconPlus from "~icons/mdi/plus";
 const journalStore = useJournalStore();
 const activeTagFilter = ref<string>("all");
 
-const sortedNotes = computed(() => {
-  return [...journalStore.activeNotes].sort(
-    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-  );
-});
+const draggedNoteId = ref<string | null>(null);
+const dropTargetId = ref<string | null>(null);
+const dropPosition = ref<"before" | "after">("before");
+
+const sortedNotes = computed(() => journalStore.activeNotes);
 
 const noteTags = computed(() => {
   const tagSet = new Set<string>();
@@ -160,6 +177,86 @@ const formatShortDate = (iso: string): string => {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+};
+
+const resetDragState = () => {
+  draggedNoteId.value = null;
+  dropTargetId.value = null;
+};
+
+const onDragStart = (noteId: string, event: DragEvent) => {
+  if (filteredNotes.value.length <= 1) {
+    event.preventDefault();
+    return;
+  }
+  draggedNoteId.value = noteId;
+  dropTargetId.value = null;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", noteId);
+  }
+};
+
+const onDragOver = (noteId: string, event: DragEvent) => {
+  if (!draggedNoteId.value || draggedNoteId.value === noteId) return;
+  const target = event.currentTarget as HTMLElement | null;
+  if (!target) return;
+
+  const rect = target.getBoundingClientRect();
+  const pos: "before" | "after" = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+  dropTargetId.value = noteId;
+  dropPosition.value = pos;
+
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "move";
+  }
+};
+
+const onDragLeave = (noteId: string, event: DragEvent) => {
+  const currentTarget = event.currentTarget as HTMLElement | null;
+  const related = event.relatedTarget as Node | null;
+  if (currentTarget && related && currentTarget.contains(related)) return;
+  if (dropTargetId.value === noteId) {
+    dropTargetId.value = null;
+  }
+};
+
+const onDrop = async (targetNoteId: string) => {
+  const sourceId = draggedNoteId.value;
+  const position = dropPosition.value;
+  resetDragState();
+
+  if (!sourceId || sourceId === targetNoteId) return;
+
+  const visibleIds = filteredNotes.value.map((n) => n.id);
+  const fromVisibleIdx = visibleIds.indexOf(sourceId);
+  const targetVisibleIdx = visibleIds.indexOf(targetNoteId);
+  if (fromVisibleIdx === -1 || targetVisibleIdx === -1) return;
+
+  const reorderedVisible = [...visibleIds];
+  const [moved] = reorderedVisible.splice(fromVisibleIdx, 1);
+  if (!moved) return;
+
+  const adjustedTargetIdx = reorderedVisible.indexOf(targetNoteId);
+  const insertAt = position === "after" ? adjustedTargetIdx + 1 : adjustedTargetIdx;
+  reorderedVisible.splice(insertAt, 0, moved);
+
+  // If a tag filter is active, reorder filtered notes across their existing slots in activeNotes
+  const allIds = sortedNotes.value.map((n) => n.id);
+  const visibleSet = new Set(visibleIds);
+  let visibleCursor = 0;
+  const finalOrderedIds = allIds.map((id) => {
+    if (!visibleSet.has(id)) return id;
+    const nextId = reorderedVisible[visibleCursor];
+    visibleCursor += 1;
+    return nextId ?? id;
+  });
+
+  await journalStore.reorderActiveNotes(finalOrderedIds);
+};
+
+const onDragEnd = () => {
+  resetDragState();
 };
 
 const handleCreateNote = async () => {

@@ -187,7 +187,8 @@ export const useJournalStore = defineStore("journal", () => {
         ...(rawDoc ? { doc: rawDoc } : {}),
         createdAt: rawNote.createdAt,
         updatedAt: rawNote.updatedAt,
-        ...(rawNote.archivedAt ? { archivedAt: rawNote.archivedAt } : {})
+        ...(rawNote.archivedAt ? { archivedAt: rawNote.archivedAt } : {}),
+        ...(typeof rawNote.order === "number" ? { order: rawNote.order } : {})
       };
 
       const result = await window.ipcRenderer.saveNote(payload);
@@ -377,6 +378,13 @@ export const useJournalStore = defineStore("journal", () => {
     }
   };
 
+  const getTopNoteOrder = (): number => {
+    const existingOrders = activeNotes.value
+      .map((n) => n.order)
+      .filter((o): o is number => typeof o === "number");
+    return existingOrders.length > 0 ? Math.min(...existingOrders) - 1 : 0;
+  };
+
   const createNote = async (initialTag?: string) => {
     await saveCurrent();
 
@@ -395,7 +403,8 @@ export const useJournalStore = defineStore("journal", () => {
       tags: normalizedInitialTag ? [normalizedInitialTag] : [],
       images: [],
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      order: getTopNoteOrder()
     };
 
     notes.value.unshift(newNote);
@@ -409,17 +418,47 @@ export const useJournalStore = defineStore("journal", () => {
     }
   };
 
-  const activeNotes = computed(() => notes.value.filter((n) => !n.archivedAt));
+  const activeNotes = computed(() =>
+    notes.value
+      .filter((n) => !n.archivedAt)
+      .sort((a, b) => {
+        const aHasOrder = typeof a.order === "number";
+        const bHasOrder = typeof b.order === "number";
+        if (aHasOrder && bHasOrder) {
+          const diff = (a.order as number) - (b.order as number);
+          if (diff !== 0) return diff;
+        } else if (aHasOrder !== bHasOrder) {
+          return aHasOrder ? -1 : 1;
+        }
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      })
+  );
 
   const archivedNotes = computed(() => {
     return notes.value
       .filter((n) => Boolean(n.archivedAt))
-      .sort(
-        (a, b) =>
+      .sort((a, b) => {
+        const aHasOrder = typeof a.order === "number";
+        const bHasOrder = typeof b.order === "number";
+        if (aHasOrder && bHasOrder) {
+          const diff = (a.order as number) - (b.order as number);
+          if (diff !== 0) return diff;
+        } else if (aHasOrder !== bHasOrder) {
+          return aHasOrder ? -1 : 1;
+        }
+        return (
           new Date(b.archivedAt ?? b.updatedAt).getTime() -
           new Date(a.archivedAt ?? a.updatedAt).getTime()
-      );
+        );
+      });
   });
+
+  const getTopArchivedOrder = (): number => {
+    const existingOrders = archivedNotes.value
+      .map((n) => n.order)
+      .filter((o): o is number => typeof o === "number");
+    return existingOrders.length > 0 ? Math.min(...existingOrders) - 1 : 0;
+  };
 
   const persistNoteEntry = async (note: NoteEntry) => {
     if (!window.ipcRenderer) return;
@@ -439,13 +478,72 @@ export const useJournalStore = defineStore("journal", () => {
       ...(rawDoc ? { doc: rawDoc } : {}),
       createdAt: rawNote.createdAt,
       updatedAt: rawNote.updatedAt,
-      ...(rawNote.archivedAt ? { archivedAt: rawNote.archivedAt } : {})
+      ...(rawNote.archivedAt ? { archivedAt: rawNote.archivedAt } : {}),
+      ...(typeof rawNote.order === "number" ? { order: rawNote.order } : {})
     };
     const result = await window.ipcRenderer.saveNote(payload);
     if (result && !result.success) {
       toast.error("Could not update note", {
         description: result.error || "Storage limit reached"
       });
+    }
+  };
+
+  const reorderActiveNotes = async (orderedIds: string[]) => {
+    const orderMap = new Map<string, number>();
+    orderedIds.forEach((id, idx) => {
+      orderMap.set(id, idx);
+    });
+
+    const toPersist: NoteEntry[] = [];
+
+    for (let i = 0; i < notes.value.length; i++) {
+      const note = notes.value[i];
+      if (!note || note.archivedAt) continue;
+      const nextOrder = orderMap.get(note.id);
+      if (nextOrder === undefined || note.order === nextOrder) continue;
+
+      const updated: NoteEntry = { ...note, order: nextOrder };
+      notes.value[i] = updated;
+
+      if (currentNote.value?.id === note.id) {
+        currentNote.value.order = nextOrder;
+      }
+
+      toPersist.push(updated);
+    }
+
+    if (toPersist.length > 0) {
+      await Promise.all(toPersist.map((note) => persistNoteEntry(note)));
+    }
+  };
+
+  const reorderArchivedNotes = async (orderedIds: string[]) => {
+    const orderMap = new Map<string, number>();
+    orderedIds.forEach((id, idx) => {
+      orderMap.set(id, idx);
+    });
+
+    const toPersist: NoteEntry[] = [];
+
+    for (let i = 0; i < notes.value.length; i++) {
+      const note = notes.value[i];
+      if (!note || !note.archivedAt) continue;
+      const nextOrder = orderMap.get(note.id);
+      if (nextOrder === undefined || note.order === nextOrder) continue;
+
+      const updated: NoteEntry = { ...note, order: nextOrder };
+      notes.value[i] = updated;
+
+      if (currentNote.value?.id === note.id) {
+        currentNote.value.order = nextOrder;
+      }
+
+      toPersist.push(updated);
+    }
+
+    if (toPersist.length > 0) {
+      await Promise.all(toPersist.map((note) => persistNoteEntry(note)));
     }
   };
 
@@ -461,11 +559,13 @@ export const useJournalStore = defineStore("journal", () => {
     const archivedAt = new Date().toISOString();
     const target = notes.value[index];
     if (!target) return;
-    const updated: NoteEntry = { ...target, archivedAt };
+    const nextOrder = getTopArchivedOrder();
+    const updated: NoteEntry = { ...target, archivedAt, order: nextOrder };
     notes.value[index] = updated;
 
     if (wasActive && currentNote.value) {
       currentNote.value.archivedAt = archivedAt;
+      currentNote.value.order = nextOrder;
     }
 
     await persistNoteEntry(updated);
@@ -488,11 +588,13 @@ export const useJournalStore = defineStore("journal", () => {
     const target = notes.value[index];
     if (!target) return;
     const { archivedAt: _omit, ...rest } = target;
-    const updated: NoteEntry = { ...rest };
+    const nextOrder = getTopNoteOrder();
+    const updated: NoteEntry = { ...rest, order: nextOrder };
     notes.value[index] = updated;
 
     if (currentNote.value?.id === id) {
       delete currentNote.value.archivedAt;
+      currentNote.value.order = nextOrder;
     }
 
     await persistNoteEntry(updated);
@@ -560,6 +662,8 @@ export const useJournalStore = defineStore("journal", () => {
     loadNotes,
     openNote,
     createNote,
+    reorderActiveNotes,
+    reorderArchivedNotes,
     archiveNote,
     unarchiveNote,
     deleteNote,

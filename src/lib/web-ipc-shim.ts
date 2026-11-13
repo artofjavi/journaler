@@ -508,7 +508,17 @@ export function installWebIpcShim(): void {
             const images = note.doc ? extractImagesFromDoc(note.doc) : (note.images ?? []);
             return { ...note, images };
           })
-          .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+          .sort((a, b) => {
+            const aHasOrder = typeof a.order === "number";
+            const bHasOrder = typeof b.order === "number";
+            if (aHasOrder && bHasOrder) {
+              const diff = (a.order as number) - (b.order as number);
+              if (diff !== 0) return diff;
+            } else if (aHasOrder !== bHasOrder) {
+              return aHasOrder ? -1 : 1;
+            }
+            return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+          });
         return { success: true, data: notes };
       } catch (err) {
         return {
@@ -531,7 +541,8 @@ export function installWebIpcShim(): void {
               doc: note.doc,
               createdAt: note.createdAt,
               updatedAt: note.updatedAt,
-              ...(note.archivedAt ? { archivedAt: note.archivedAt } : {})
+              ...(note.archivedAt ? { archivedAt: note.archivedAt } : {}),
+              ...(typeof note.order === "number" ? { order: note.order } : {})
             }
           : note;
 

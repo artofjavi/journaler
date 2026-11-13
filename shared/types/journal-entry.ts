@@ -22,4 +22,5 @@ export interface NoteEntry {
   createdAt: string;
   updatedAt: string;
   archivedAt?: string;
+  order?: number;
 }
